@@ -1,4 +1,5 @@
-Proyecto de ciberseguridad para Casa Monarca enfocado en integridad, firma digital, cifrado y control de accesos usando herramientas de código abierto.
+Repositorio para el desarrollo del reto de seguridad y criptografía aplicado a Casa Monarca.
+Este proyecto tiene como objetivo diseñar una solución para la gestión, protección y verificación de documentos y datos personales, utilizando conceptos de criptografía moderna como firma digital, hash, cifrado y autenticación multifactor. Además, el repositorio centraliza el trabajo colaborativo del equipo, el control de versiones y la documentación técnica del proyecto.
 
 # Integrantes
 
