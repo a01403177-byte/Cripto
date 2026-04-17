@@ -11,7 +11,7 @@ from app.config import settings
 from app.db import Base, engine
 from app.deps import get_db
 from app.schemas import AuditLogOut, MeOut, UserOut
-from app.services import AuditService, AuthorizationService, BootstrapService, UserService
+from app.services import AuditService, AuthorizationService, BootstrapService, CertificateService, UserService
 
 
 @asynccontextmanager
@@ -19,6 +19,8 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     with Session(bind=engine) as db:
         BootstrapService.seed(db)
+
+    print(f"Registro para usuarios: http://{settings.app_host}:{settings.app_port}/signup")
     yield
 
 
@@ -80,17 +82,19 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
     rows = []
     for user in users:
         status_forms = []
-        if can_activate:
+
+        if can_activate and user.status == "pending":
             status_forms.append(
                 f"""
                 <form method="post" action="/ui/users/{user.id}/status">
                   <input type="hidden" name="actor_id" value="{actor.id}">
                   <input type="hidden" name="status" value="active">
-                  <button type="submit">Activar</button>
+                  <button type="submit">Aprobar</button>
                 </form>
                 """
             )
-        if can_revoke:
+
+        if can_revoke and user.status in ("active", "pending"):
             status_forms.append(
                 f"""
                 <form method="post" action="/ui/users/{user.id}/status">
@@ -100,7 +104,8 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
                 </form>
                 """
             )
-        if can_reactivate:
+
+        if can_reactivate and user.status == "revoked":
             status_forms.append(
                 f"""
                 <form method="post" action="/ui/users/{user.id}/status">
@@ -123,6 +128,12 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
             </form>
             """
 
+        certificate_cell = (
+            f"""<a class="link-button" href="/ui/users/{user.id}/certificate?as_user={actor.id}">Ver certificado</a>"""
+            if user.status == "active"
+            else "<span class='muted'>Sin certificado</span>"
+        )
+
         rows.append(
             f"""
             <tr>
@@ -133,6 +144,7 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
               <td>{escape(user.end_date.isoformat(sep=' ', timespec='minutes')) if user.end_date else 'sin vencimiento'}</td>
               <td class="actions">{''.join(status_forms) or 'sin acciones'}</td>
               <td>{role_form}</td>
+              <td>{certificate_cell}</td>
             </tr>
             """
         )
@@ -178,23 +190,60 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
           }}
           * {{ box-sizing: border-box; }}
           body {{ margin: 0; background: linear-gradient(180deg, #efe3d0, var(--bg)); color: var(--ink); font-family: Georgia, serif; }}
-          main {{ max-width: 1120px; margin: 0 auto; padding: 28px 18px 52px; }}
+          main {{ max-width: 1180px; margin: 0 auto; padding: 28px 18px 52px; }}
           .hero, .panel {{ background: var(--card); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 12px 32px rgba(31, 43, 55, 0.08); }}
           .hero {{ padding: 26px; }}
           .panel {{ padding: 18px; }}
           .grid {{ display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-top: 18px; }}
           .stack {{ display: grid; gap: 10px; }}
           label {{ display: grid; gap: 6px; font-size: 14px; }}
-          input, select, button {{ font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid #c9bca9; }}
-          button {{ background: var(--accent); color: #fff; border: none; cursor: pointer; }}
-          table {{ width: 100%; border-collapse: collapse; }}
-          th, td {{ border-bottom: 1px solid #efe4d3; padding: 12px 10px; vertical-align: top; text-align: left; }}
-          .status {{ display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }}
+          input, select, button {{
+            font: inherit;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid #c9bca9;
+          }}
+          button {{
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+          }}
+          table {{
+            width: 100%;
+            border-collapse: collapse;
+          }}
+          th, td {{
+            border-bottom: 1px solid #efe4d3;
+            padding: 12px 10px;
+            vertical-align: top;
+            text-align: left;
+          }}
+          .status {{
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 12px;
+          }}
           .status-active {{ background: #ddf3e4; color: var(--ok); }}
           .status-pending {{ background: #fff0dc; color: var(--warn); }}
           .status-revoked, .status-expired {{ background: #f8dfdf; color: var(--bad); }}
           .actions form {{ margin-bottom: 8px; }}
           .inline-form {{ display: grid; gap: 8px; }}
+          .link-button {{
+            display: inline-block;
+            background: var(--accent);
+            color: #fff;
+            text-decoration: none;
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 14px;
+          }}
+          .muted {{
+            color: #7a746c;
+            font-size: 14px;
+          }}
           ul {{ margin: 0; padding-left: 18px; }}
           @media (max-width: 760px) {{
             table, thead, tbody, tr, th, td {{ display: block; }}
@@ -207,7 +256,7 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
         <main>
           <section class="hero">
             <h1>Gestor de identidades demo</h1>
-            <p>Version minima para demostrar altas, roles, revocacion, expiracion y bitacora sin depender de integraciones externas.</p>
+            <p>Version minima para demostrar altas, roles, revocacion, expiracion, certificados y bitacora sin depender de integraciones externas.</p>
             <form method="get" action="/" class="stack" style="max-width: 360px;">
               <label>Actuar como
                 <select name="as_user">{actor_options}</select>
@@ -246,6 +295,7 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
                   <th>Expira</th>
                   <th>Cuenta</th>
                   <th>Rol</th>
+                  <th>Certificado</th>
                 </tr>
               </thead>
               <tbody>{''.join(rows)}</tbody>
@@ -260,7 +310,6 @@ def render_dashboard(actor, users, roles, permissions, logs) -> str:
       </body>
     </html>
     """
-
 
 @app.get("/health")
 def health():
@@ -339,6 +388,8 @@ def ui_change_status(
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
+    previous_status = target.status
+
     config = {
         "active": ("users", "activate", "user_activated"),
         "revoked": ("users", "revoke", "user_revoked"),
@@ -352,6 +403,7 @@ def ui_change_status(
 
     require_actor_permission(db, actor, resource, action)
     updated = UserService.update_status(db, target, status)
+
     AuditService.log(
         db,
         event_type=event_type,
@@ -361,6 +413,21 @@ def ui_change_status(
         resource=resource,
         result="success",
     )
+
+    if previous_status == "pending" and updated.status == "active":
+        certificate = CertificateService.generate_for_user(db, updated, actor.id)
+
+        AuditService.log(
+            db,
+            event_type="certificate_generated",
+            actor_user_id=actor.id,
+            target_user_id=updated.id,
+            action="issue",
+            resource="certificates",
+            result="success",
+            metadata={"certificate_code": certificate.certificate_code},
+        )
+
     return redirect_home(actor.id)
 
 
@@ -389,3 +456,177 @@ def ui_change_role(
         metadata={"role_id": role_id},
     )
     return redirect_home(actor.id)
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_form():
+    return HTMLResponse("""
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Registro solo lectura</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            padding: 40px;
+          }
+          .card {
+            max-width: 420px;
+            margin: auto;
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+          }
+          input, button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            border-radius: 10px;
+            border: 1px solid #ccc;
+            font: inherit;
+          }
+          button {
+            background: #a64b2a;
+            color: white;
+            border: none;
+            cursor: pointer;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>Registro</h1>
+          <p>Tu cuenta se creará con permisos de solo lectura.</p>
+          <form method="post" action="/signup">
+            <label>Nombre completo</label>
+            <input name="full_name" required>
+
+            <label>Correo electrónico</label>
+            <input name="email" type="email" required>
+
+            <button type="submit">Dar de alta</button>
+          </form>
+        </div>
+      </body>
+    </html>
+    """)
+
+
+@app.post("/signup")
+def signup(
+    full_name: str = Form(...),
+    email: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    roles = UserService.list_roles(db)
+    lectura_role = next((role for role in roles if role.code == "LECTURA"), None)
+
+    if not lectura_role:
+        raise HTTPException(status_code=500, detail="Role LECTURA not found")
+
+    user = UserService.create_user(
+        db,
+        full_name=full_name,
+        email=email,
+        role_id=lectura_role.id,
+        end_date=None,
+    )
+
+    AuditService.log(
+        db,
+        event_type="readonly_signup",
+        actor_user_id=None,
+        target_user_id=user.id,
+        action="create",
+        resource="users",
+        result="success",
+        metadata={"role": "LECTURA"},
+    )
+
+    return HTMLResponse(f"""
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8">
+        <title>Registro exitoso</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; padding: 40px;">
+        <h1>Registro exitoso</h1>
+        <p>Se creó la cuenta de <strong>{escape(user.full_name)}</strong> con permisos de solo lectura.</p>
+        <p>Correo: {escape(user.email)}</p>
+      </body>
+    </html>
+    """)
+
+
+@app.get("/ui/users/{user_id}/certificate", response_class=HTMLResponse)
+def view_certificate(
+    user_id: int,
+    as_user: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    actor = get_actor_or_404(db, as_user)
+    require_actor_permission(db, actor, "users", "view")
+
+    user = UserService.get_user(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    certificate = CertificateService.get_by_user(db, user_id)
+    if not certificate:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+
+    return HTMLResponse(f"""
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8">
+        <title>Certificado</title>
+        <style>
+          body {{
+            font-family: Georgia, serif;
+            background: #f4efe6;
+            padding: 40px;
+          }}
+          .certificate {{
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            border: 8px solid #a64b2a;
+            padding: 50px;
+            border-radius: 18px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+          }}
+          h1 {{
+            margin-bottom: 10px;
+            color: #a64b2a;
+          }}
+          .name {{
+            font-size: 32px;
+            font-weight: bold;
+            margin: 24px 0;
+          }}
+          .code {{
+            margin-top: 30px;
+            color: #555;
+            font-size: 14px;
+          }}
+        </style>
+      </head>
+      <body>
+        <div class="certificate">
+          <h1>Certificado de Aprobación</h1>
+          <p>Se certifica que</p>
+          <div class="name">{escape(user.full_name)}</div>
+          <p>ha sido aprobado satisfactoriamente en el sistema.</p>
+          <p>Correo: {escape(user.email)}</p>
+          <p>Fecha de emisión: {certificate.issued_at.strftime("%Y-%m-%d %H:%M UTC")}</p>
+          <p class="code">Folio: {escape(certificate.certificate_code)}</p>
+        </div>
+      </body>
+    </html>
+    """)
