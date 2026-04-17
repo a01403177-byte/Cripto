@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import AuditLog, Permission, Role, RolePermission, User
+from app.models import AuditLog, Certificate, Permission, Role, RolePermission, User
 
 ROLE_DEFINITIONS = {
     "ADMIN": {
@@ -231,3 +231,32 @@ class UserService:
         db.commit()
         db.refresh(user)
         return user
+
+class CertificateService:
+    @staticmethod
+    def generate_for_user(db: Session, user: User, issued_by_user_id: int | None = None) -> Certificate:
+        existing = db.scalar(
+            select(Certificate)
+            .where(Certificate.user_id == user.id)
+            .order_by(Certificate.id.desc())
+        )
+        if existing:
+            return existing
+
+        certificate = Certificate(
+            user_id=user.id,
+            certificate_code=f"CERT-{user.id}-{int(datetime.utcnow().timestamp())}",
+            issued_by_user_id=issued_by_user_id,
+        )
+        db.add(certificate)
+        db.commit()
+        db.refresh(certificate)
+        return certificate
+
+    @staticmethod
+    def get_by_user(db: Session, user_id: int) -> Certificate | None:
+        return db.scalar(
+            select(Certificate)
+            .where(Certificate.user_id == user_id)
+            .order_by(Certificate.id.desc())
+        )
