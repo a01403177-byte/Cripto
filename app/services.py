@@ -27,8 +27,8 @@ ROLE_DEFINITIONS = {
         "permissions": [("documents", "view"), ("documents", "edit")],
     },
     "LECTURA": {
-        "name": "Solo lectura",
-        "permissions": [("records", "view"), ("documents", "view")],
+    "name": "Solo lectura",
+    "permissions": [("users", "view"),("audit", "view"),("records", "view"),("documents", "view"),],
     },
     "EXTERNAL": {
         "name": "Externo",
