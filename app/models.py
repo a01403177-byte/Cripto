@@ -63,3 +63,14 @@ class AuditLog(Base):
     result: Mapped[str] = mapped_column(Enum("success", "failure", name="audit_result_enum"), nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+class Certificate(Base):
+    __tablename__ = "certificates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    certificate_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    issued_by_user_id: Mapped[int | None] = mapped_column(nullable=True)
+
+    user: Mapped[User] = relationship()
