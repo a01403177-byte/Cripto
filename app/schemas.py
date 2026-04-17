@@ -47,3 +47,13 @@ class AuditLogOut(BaseModel):
     result: str
     metadata_json: dict | None
     created_at: datetime
+
+
+class CertificateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    certificate_code: str
+    issued_at: datetime
+    issued_by_user_id: int | None
